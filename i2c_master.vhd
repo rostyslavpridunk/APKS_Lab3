@@ -25,7 +25,8 @@ end i2c_master;
 architecture Behavioral of i2c_master is
     constant CLK_DIV : INTEGER := INPUT_CLK / (BUS_CLK * 4);
     
-    type state_type is (IDLE, START_BIT, ADDR, ACK_ADDR, DATA_TX, ACK_DATA, STOP_BIT);
+    -- Перейменовано ADDR на ADDR_STATE щоб уникнути конфлікту з портом addr
+    type state_type is (IDLE, START_BIT, ADDR_STATE, ACK_ADDR, DATA_TX, ACK_DATA, STOP_BIT);
     signal state : state_type := IDLE;
 
     signal clk_cnt   : INTEGER range 0 to CLK_DIV := 0;
@@ -80,10 +81,10 @@ begin
                 when START_BIT =>
                     sda_out <= '0';
                     scl_out <= '1';
-                    state <= ADDR;
+                    state <= ADDR_STATE;
                     bit_idx <= 7;
 
-                when ADDR =>
+                when ADDR_STATE =>
                     scl_out <= '0';
                     sda_out <= tx_buffer(bit_idx);
                     if bit_idx = 0 then
