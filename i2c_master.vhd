@@ -15,7 +15,6 @@ entity i2c_master is
         data_in   : in  STD_LOGIC_VECTOR(7 downto 0);
         busy      : out STD_LOGIC;
         ack_error : out STD_LOGIC;
-        
         -- Лінії шини I2C
         scl       : out STD_LOGIC;
         sda       : inout STD_LOGIC
@@ -23,12 +22,12 @@ entity i2c_master is
 end i2c_master;
 
 architecture Behavioral of i2c_master is
-    constant CLK_DIV : INTEGER := INPUT_CLK / (BUS_CLK * 4);
+    constant CLK_DIV : INTEGER := INPUT_CLK / (BUS_CLK * 4); -- 125 тактів
     
     -- Перейменовано ADDR на ADDR_STATE щоб уникнути конфлікту з портом addr
     type state_type is (IDLE, START_BIT, ADDR_STATE, ACK_ADDR, DATA_TX, ACK_DATA, STOP_BIT);
-    signal state : state_type := IDLE;
-
+    signal state     : state_type := IDLE;
+    
     signal clk_cnt   : INTEGER range 0 to CLK_DIV := 0;
     signal data_clk  : STD_LOGIC := '0';
     signal bit_idx   : INTEGER range 0 to 7 := 7;
@@ -36,18 +35,17 @@ architecture Behavioral of i2c_master is
     
     signal sda_out   : STD_LOGIC := '1';
     signal scl_out   : STD_LOGIC := '1';
-
 begin
 
-    -- Дільник тактової частоти
+    -- Дільник тактової частоти (50 МГц -> 400 кГц внутрішній строб)
     process(clk, reset)
     begin
         if reset = '1' then
-            clk_cnt <= 0;
+            clk_cnt  <= 0;
             data_clk <= '0';
         elsif rising_edge(clk) then
             if clk_cnt = CLK_DIV - 1 then
-                clk_cnt <= 0;
+                clk_cnt  <= 0;
                 data_clk <= not data_clk;
             else
                 clk_cnt <= clk_cnt + 1;
@@ -55,33 +53,33 @@ begin
         end if;
     end process;
 
-    -- Логіка FSM
+    -- Логіка скінченного автомата (FSM)
     process(data_clk, reset)
     begin
         if reset = '1' then
-            state <= IDLE;
-            busy <= '0';
+            state     <= IDLE;
+            busy      <= '0';
             ack_error <= '0';
-            sda_out <= '1';
-            scl_out <= '1';
-            bit_idx <= 7;
+            sda_out   <= '1';
+            scl_out   <= '1';
+            bit_idx   <= 7;
         elsif rising_edge(data_clk) then
             case state is
                 when IDLE =>
-                    busy <= '0';
+                    busy    <= '0';
                     sda_out <= '1';
                     scl_out <= '1';
                     if start = '1' then
-                        state <= START_BIT;
-                        tx_buffer <= addr & '0'; -- Режим запису ('0')
-                        busy <= '1';
+                        state     <= START_BIT;
+                        tx_buffer <= addr & '0'; -- 7 біт адреси + біт запису ('0')
+                        busy      <= '1';
                         ack_error <= '0';
                     end if;
 
                 when START_BIT =>
-                    sda_out <= '0';
+                    sda_out <= '0'; -- Умова СТАРТ (спад SDA при високому SCL)
                     scl_out <= '1';
-                    state <= ADDR_STATE;
+                    state   <= ADDR_STATE;
                     bit_idx <= 7;
 
                 when ADDR_STATE =>
@@ -95,14 +93,14 @@ begin
 
                 when ACK_ADDR =>
                     scl_out <= '1';
-                    sda_out <= 'Z'; -- Звільняємо SDA для ACK від Slave
+                    sda_out <= 'Z'; -- Звільняємо SDA для прийому ACK від Slave
                     if sda = '0' then
-                        tx_buffer <= data_in;
-                        bit_idx <= 7;
-                        state <= DATA_TX;
+                        tx_buffer <= data_in; -- Завантажуємо дані 0x35
+                        bit_idx   <= 7;
+                        state     <= DATA_TX;
                     else
                         ack_error <= '1';
-                        state <= STOP_BIT;
+                        state     <= STOP_BIT;
                     end if;
 
                 when DATA_TX =>
@@ -116,7 +114,7 @@ begin
 
                 when ACK_DATA =>
                     scl_out <= '1';
-                    sda_out <= 'Z';
+                    sda_out <= 'Z'; -- Звільняємо SDA для прийому ACK даних
                     if sda /= '0' then
                         ack_error <= '1';
                     end if;
@@ -124,12 +122,13 @@ begin
 
                 when STOP_BIT =>
                     scl_out <= '1';
-                    sda_out <= '1';
-                    state <= IDLE;
+                    sda_out <= '1'; -- Умова СТОП (підйом SDA при високому SCL)
+                    state   <= IDLE;
             end case;
         end if;
     end process;
 
+    -- Формування виходів (відкритий стік для SDA)
     scl <= scl_out;
     sda <= sda_out when sda_out = '0' else 'Z';
 
